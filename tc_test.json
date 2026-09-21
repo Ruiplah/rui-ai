@@ -1,0 +1,1 @@
+﻿{"model":"qwen3.5-9b","messages":[{"role":"user","content":"帮我看看 D 盘根目录有哪些文件夹"}],"tools":[{"type":"function","function":{"name":"list_dir","description":"列出指定目录下的内容","parameters":{"type":"object","properties":{"path":{"type":"string","description":"目录路径"}},"required":["path"]}}}],"chat_template_kwargs":{"enable_thinking":false}}

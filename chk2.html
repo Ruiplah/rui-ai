@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>本地 AI 助手 · Qwen3.5-9B</title>
+<style>
+  :root {
+    --bg: #f2f3f5; --card: #ffffff; --text: #1f2329; --muted: #8a919f;
+    --accent: #2f6bff; --accent-soft: #eaf0ff; --border: #e3e6eb;
+    --danger: #e5484d; --green: #30a46c; --code-bg: #f0f1f4;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", "Segoe UI", system-ui, sans-serif;
+    background: var(--bg); color: var(--text); height: 100vh;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  header {
+    background: var(--card); border-bottom: 1px solid var(--border);
+    padding: 10px 18px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 16px; font-weight: 600; white-space: nowrap; display: flex; align-items: center; gap: 8px; }
+  header .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); display: inline-block; }
+  header .dot.down { background: var(--danger); }
+  header .sub { font-size: 12px; color: var(--muted); white-space: nowrap; }
+  .spacer { flex: 1; }
+  .tool {
+    display: inline-flex; align-items: center; gap: 5px; font-size: 13px; color: var(--text);
+    border: 1px solid var(--border); border-radius: 6px; padding: 5px 10px; background: #fff; cursor: pointer;
+    white-space: nowrap; user-select: none;
+  }
+  .tool:hover { border-color: var(--accent); }
+  .tool.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .tool input[type=checkbox] { display: none; }
+  .tool .sw { width: 26px; height: 15px; border-radius: 8px; background: #d4d7dd; position: relative; transition: background .15s; }
+  .tool .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px; border-radius: 50%; background: #fff; transition: left .15s; }
+  .tool.on .sw { background: var(--accent); }
+  .tool.on .sw::after { left: 13px; }
+  #messages {
+    flex: 1; overflow-y: auto; padding: 20px 18px 8px;
+    max-width: 900px; width: 100%; margin: 0 auto;
+  }
+  .msg { display: flex; margin-bottom: 18px; }
+  .msg .col { max-width: 84%; min-width: 0; }
+  .msg .role-tag { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .msg .bubble {
+    padding: 10px 14px; border-radius: 10px; line-height: 1.7; font-size: 14px;
+    word-break: break-word; overflow-wrap: anywhere;
+  }
+  .msg.user { justify-content: flex-end; }
+  .msg.user .col { display: flex; flex-direction: column; align-items: flex-end; }
+  .msg.user .bubble { background: var(--accent); color: #fff; border-bottom-right-radius: 2px; }
+  .msg.assistant { justify-content: flex-start; }
+  .msg.assistant .bubble { background: var(--card); border: 1px solid var(--border); border-bottom-left-radius: 2px; width: 100%; }
+  .msg.system .bubble { background: #fff8e6; border: 1px solid #f0e0b0; font-size: 13px; color: #7a5b00; }
+  /* markdown */
+  .md p { margin: 0 0 8px; } .md p:last-child { margin-bottom: 0; }
+  .md h1,.md h2,.md h3,.md h4 { margin: 12px 0 6px; font-weight: 600; }
+  .md h1 { font-size: 18px; } .md h2 { font-size: 16px; } .md h3 { font-size: 15px; } .md h4 { font-size: 14px; }
+  .md ul,.md ol { margin: 6px 0 8px; padding-left: 22px; }
+  .md li { margin: 2px 0; }
+  .md code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-family: Consolas, Menlo, monospace; font-size: 13px; }
+  .md pre { background: #1e2127; color: #e6e6e6; padding: 12px; border-radius: 8px; overflow-x: auto; margin: 8px 0; }
+  .md pre code { background: none; padding: 0; color: inherit; font-size: 13px; display: block; }
+  .md a { color: var(--accent); }
+  .md blockquote { border-left: 3px solid #c8cdd6; color: #5a6270; padding: 2px 10px; margin: 8px 0; background: #f7f8fa; }
+  .md table { border-collapse: collapse; margin: 8px 0; }
+  .md th,.md td { border: 1px solid var(--border); padding: 5px 10px; font-size: 13px; }
+  .md th { background: #f7f8fa; }
+  .md hr { border: none; border-top: 1px solid var(--border); margin: 10px 0; }
+  .think {
+    font-size: 13px; color: var(--muted); background: #f0f1f4;
+    border-left: 3px solid #c8cdd6; padding: 8px 10px; border-radius: 4px; margin-bottom: 10px;
+    white-space: pre-wrap;
+  }
+  .think summary { cursor: pointer; font-weight: 500; }
+  .sources { font-size: 12px; color: var(--muted); margin: 6px 2px 0; }
+  .sources a { color: var(--accent); margin-right: 10px; text-decoration: none; }
+  .sources a:hover { text-decoration: underline; }
+  .typing .bubble::after { content: "▍"; animation: blink 0.9s infinite; color: var(--muted); }
+  @keyframes blink { 50% { opacity: 0; } }
+  .status { font-size: 13px; color: var(--muted); padding: 6px 2px; }
+  .status .spin { display: inline-block; animation: rot 1s linear infinite; }
+  @keyframes rot { to { transform: rotate(360deg); } }
+  /* 工具调用活动面板 */
+  .activity { margin: 0 0 10px; }
+  .act-item {
+    display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted);
+    background: #f7f8fa; border: 1px solid var(--border); border-radius: 6px;
+    padding: 6px 10px; margin-bottom: 6px; overflow: hidden;
+  }
+  .act-item .cmd { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: Consolas, Menlo, monospace; }
+  .act-item.done { border-color: #cfe8d9; background: #f2faf5; }
+  .act-item.error { border-color: #f0c0c0; background: #fdf2f2; }
+  .act-item.waiting { border-color: #f0d9a0; background: #fffaf0; }
+  .act-item .badge { font-size: 12px; flex-shrink: 0; }
+  .act-item pre.result {
+    display: none; flex-basis: 100%; margin-top: 6px; background: #fff; border: 1px solid var(--border);
+    border-radius: 6px; padding: 8px 10px; font-size: 12px; max-height: 260px; overflow: auto; white-space: pre-wrap;
+  }
+  .act-item.open pre.result { display: block; }
+  #inputbar {
+    border-top: 1px solid var(--border); background: var(--card); padding: 10px 18px 14px;
+    max-width: 900px; width: 100%; margin: 0 auto;
+  }
+  #inputbox {
+    display: flex; gap: 10px; align-items: flex-end;
+    border: 1px solid var(--border); border-radius: 12px; padding: 8px 8px 8px 14px; background: #fff;
+    transition: border-color .15s;
+  }
+  #inputbox:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  #input { flex: 1; border: none; outline: none; resize: none; font-size: 14px; font-family: inherit; line-height: 1.6; max-height: 160px; background: transparent; }
+  #send {
+    background: var(--accent); color: #fff; border: none; border-radius: 9px;
+    padding: 9px 22px; font-size: 14px; cursor: pointer; flex-shrink: 0;
+  }
+  #send:disabled { opacity: .5; cursor: not-allowed; }
+  #stop {
+    background: #fff; color: var(--danger); border: 1px solid var(--danger); border-radius: 9px;
+    padding: 9px 18px; font-size: 14px; cursor: pointer; flex-shrink: 0; display: none;
+  }
+  #attach {
+    background: none; border: none; color: var(--muted); font-size: 20px; cursor: pointer; flex-shrink: 0; padding: 4px 6px; line-height: 1;
+  }
+  #attach:hover { color: var(--accent); }
+  .hint { font-size: 12px; color: var(--muted); padding: 6px 2px 0; }
+  #fileinfo { font-size: 12px; color: var(--green); padding: 4px 2px 0; display: none; }
+  #fileinfo b { color: var(--text); }
+  .clear-btn { border: none; background: none; color: var(--muted); font-size: 13px; cursor: pointer; padding: 4px; }
+  .clear-btn:hover { color: var(--danger); }
+  @media (max-width: 640px) { .msg .col { max-width: 92%; } }
+  /* 确认弹窗 */
+  #modal {
+    position: fixed; inset: 0; background: rgba(0,0,0,.45); display: none;
+    align-items: center; justify-content: center; z-index: 100;
+  }
+  #modal.show { display: flex; }
+  #modal .box {
+    background: #fff; border-radius: 12px; max-width: 520px; width: 92%;
+    padding: 20px; box-shadow: 0 8px 40px rgba(0,0,0,.2);
+  }
+  #modal .box h3 { font-size: 15px; margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+  #modal .box .warn { color: var(--danger); }
+  #modal .box .desc { font-size: 13px; color: #5a6270; margin-bottom: 10px; }
+  #modal .box .cmd {
+    background: #1e2127; color: #e6e6e6; border-radius: 8px; padding: 10px 12px;
+    font-family: Consolas, Menlo, monospace; font-size: 13px; overflow-x: auto; white-space: pre-wrap; margin-bottom: 14px;
+  }
+  #modal .box .btns { display: flex; justify-content: flex-end; gap: 10px; }
+  #modal .box .btns button {
+    border-radius: 8px; padding: 8px 18px; font-size: 14px; cursor: pointer; border: 1px solid var(--border); background: #fff;
+  }
+  #modal .box .btns button.allow { background: var(--danger); color: #fff; border-color: var(--danger); }
+  #modal .box .btns button.deny { background: var(--accent); color: #fff; border-color: var(--accent); }
+  #modal .box .countdown { font-size: 12px; color: var(--muted); margin-top: 10px; text-align: right; }
+</style>
+</head>
+<body>
+<header>
+  <h1><span class="dot" id="statusDot" title="模型服务状态"></span> 本地 AI 助手</h1>
+  <span class="sub">Qwen3.5-9B · 本地运行</span>
+  <div class="spacer"></div>
+  <label class="tool" id="agentToggle" title="AI 助手模式：模型可自主调用工具完成任务（看文件、执行命令、联网搜索等）"><input type="checkbox" id="agentChk"><span class="sw"></span> AI 助手</label>
+  <label class="tool" id="webToggle" title="提问时自动联网搜索并抓取资料（普通对话模式）"><input type="checkbox" id="webChk"><span class="sw"></span> 联网搜索</label>
+  <label class="tool" id="thinkToggle" title="显示模型的推理过程"><input type="checkbox" id="thinkChk"><span class="sw"></span> 思考模式</label>
+  <button class="clear-btn" id="clearBtn">清空对话</button>
+</header>
+
+<div id="messages"></div>
+
+<div id="inputbar">
+  <div id="fileinfo">已加载文件：<b id="filename"></b> <span id="filechars"></span></div>
+  <div id="inputbox">
+    <textarea id="input" rows="1" placeholder="输入消息，Enter 发送，Shift+Enter 换行"></textarea>
+    <button id="attach" title="上传文本文件">📎</button>
+    <button id="stop">停止</button>
+    <button id="send">发送</button>
+  </div>
+  <div class="hint" id="hint">纯本地运行 · 打开「AI 助手」后可让它自主操作电脑完成任务（涉及删除/修改等危险操作会先征求你同意）</div>
+</div>
+<input type="file" id="fileInput" accept=".txt,.md,.markdown,.csv,.json,.log,.py,.js,.ts,.html,.css,.xml,.yaml,.yml,.ini,.conf,.sh,.bat,.ps1" style="display:none" multiple>
+
+<!-- 危险操作确认弹窗 -->
+<div id="modal">
+  <div class="box">
+    <h3><span class="warn">⚠</span> 需要你的确认</h3>
+    <div class="desc">AI 助手想执行下面这条命令，它可能修改、删除数据或影响系统：</div>
+    <div class="cmd" id="modalCmd"></div>
+    <div class="btns">
+      <button class="deny" id="modalDeny">拒绝</button>
+      <button class="allow" id="modalAllow">允许执行</button>
+    </div>
+    <div class="countdown" id="modalCount"></div>
+  </div>
+</div>
+
+<script>
+"use strict";
+const MODEL = "qwen3.5-9b";
+const AGENT_API = "http://127.0.0.1:8082";
+const messagesEl = document.getElementById("messages");
+const inputEl = document.getElementById("input");
+const sendBtn = document.getElementById("send");
+const stopBtn = document.getElementById("stop");
+const thinkChk = document.getElementById("thinkChk");
+const webChk = document.getElementById("webChk");
+const agentChk = document.getElementById("agentChk");
+const clearBtn = document.getElementById("clearBtn");
+const fileInput = document.getElementById("fileInput");
+const fileinfo = document.getElementById("fileinfo");
+const filenameEl = document.getElementById("filename");
+const filecharsEl = document.getElementById("filechars");
+const statusDot = document.getElementById("statusDot");
+const hint = document.getElementById("hint");
+
+let history = [];
+let loadedFiles = [];   // {name, content}
+let abortCtrl = null;
+let busy = false;       // 任务执行中
+const queue = [];       // 排队消息
+
+/* ---------- 工具定义（AI 助手模式） ---------- */
+const TOOLS = [
+  { type: "function", function: { name: "list_dir", description: "查看电脑上指定目录下的文件和文件夹", parameters: { type: "object", properties: { path: { type: "string", description: "要查看的目录路径，例如 D:\\ 或 C:\\Users" } }, required: ["path"] } } },
+  { type: "function", function: { name: "read_file", description: "读取电脑上指定文本文件的内容", parameters: { type: "object", properties: { path: { type: "string", description: "文件的完整路径" } }, required: ["path"] } } },
+  { type: "function", function: { name: "run_command", description: "在电脑上执行 Windows 命令行命令（cmd）。用于查看系统信息、运行程序、查询状态等。禁止用于删除或修改数据的操作。", parameters: { type: "object", properties: { command: { type: "string", description: "要执行的 cmd 命令" } }, required: ["command"] } } },
+  { type: "function", function: { name: "web_search", description: "联网搜索最新信息，适合查天气、新闻、实时数据等", parameters: { type: "object", properties: { query: { type: "string", description: "搜索关键词" }, n: { type: "integer", description: "返回条数（1-10，默认5）" } } } } },
+  { type: "function", function: { name: "fetch_url", description: "抓取指定网页的正文内容", parameters: { type: "object", properties: { url: { type: "string", description: "网页地址" } }, required: ["url"] } } }
+];
+
+const AGENT_SYSTEM = `你是运行在用户电脑上的 AI 智能助手（Agent）。你可以通过工具操作这台电脑：
+1. list_dir —— 查看目录内容
+2. read_file —— 读取文本文件
+3. run_command —— 执行 Windows 命令（只用于查看信息/运行无害操作；涉及删除、修改系统等的命令会被拦截并要求用户确认）
+4. web_search —— 联网搜索
+5. fetch_url —— 抓取网页正文
+
+使用规则：
+- 需要信息时先调用工具获取，不要凭空猜测。
+- 一个任务可能需要多步调用，逐步推进直到真正完成。
+- 需要读文件/查目录时，用工具直接查看；可以结合 web_search 获取实时资料。
+- 所有工具完成后，用清晰、有条理的中文给出最终回答；若某步失败或信息不足，如实说明。
+- 你的回答要直接面向用户，给出结论和必要的细节。`;
+
+/* ---------- 设置持久化 ---------- */
+function saveSettings() {
+  localStorage.setItem("llm_web", webChk.checked ? "1" : "0");
+  localStorage.setItem("llm_think", thinkChk.checked ? "1" : "0");
+  localStorage.setItem("llm_agent", agentChk.checked ? "1" : "0");
+}
+function loadSettings() {
+  webChk.checked = localStorage.getItem("llm_web") === "1";
+  thinkChk.checked = localStorage.getItem("llm_think") === "1";
+  agentChk.checked = localStorage.getItem("llm_agent") === "1";
+}
+loadSettings();
+saveSettings();
+
+/* ---------- 历史记录持久化 ---------- */
+function saveHistory() { try { localStorage.setItem("llm_history", JSON.stringify(history)); } catch(e){} }
+function loadHistory() {
+  try {
+    const h = JSON.parse(localStorage.getItem("llm_history") || "[]");
+    if (Array.isArray(h) && h.length) { history = h; return true; }
+  } catch(e){}
+  return false;
+}
+if (loadHistory()) {
+  history.forEach(m => renderMsg(m.role, m.content, false));
+} else {
+  renderMsg("assistant", "你好！我是运行在你电脑上的 **Qwen3.5-9B** 本地模型，数据不会上传。\n\n右上角打开「**AI 助手**」，我就可以像真正的智能助手一样：查看你电脑上的文件、执行命令、联网搜索，一步步自主完成任务（涉及删除/修改等危险操作会先征求你同意）。任务执行期间你可以继续发消息，我会排着队处理。");
+}
+
+/* ---------- Markdown 渲染（安全） ---------- */
+function esc(s) {
+  return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+          .replace(/"/g,"&quot;").replace(/'/g,"&#39;");
+}
+function renderMarkdown(src) {
+  src = String(src);
+  let html = "";
+  const parts = src.split(/```/);
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 1) {
+      let code = parts[i];
+      let lang = "";
+      const nl = code.indexOf("\n");
+      if (nl > 0) { lang = code.slice(0, nl).trim(); code = code.slice(nl + 1); }
+      html += '<pre><code' + (lang ? ' data-lang="'+esc(lang)+'"' : '') + '>' + esc(code.replace(/\n$/, "")) + '</code></pre>';
+    } else {
+      html += renderInlineBlock(parts[i]);
+    }
+  }
+  return html;
+}
+function renderInlineBlock(text) {
+  const lines = text.split("\n");
+  let out = "";
+  let listType = null;
+  const flushList = () => { if (listType) { out += "</" + listType + ">"; listType = null; } };
+  for (let raw of lines) {
+    let line = raw;
+    if (/^\s*\|.*\|\s*$/.test(line) && line.split("|").length >= 3) {
+      flushList(); out += renderTable(lines, line); break;
+    }
+    let m = line.match(/^(#{1,6})\s+(.*)$/);
+    if (m) { flushList(); const lv = m[1].length; out += `<h${lv}>${inline(m[2])}</h${lv}>`; continue; }
+    if (/^\s*(-{3,}|\*{3,})\s*$/.test(line)) { flushList(); out += "<hr>"; continue; }
+    if (line.trim().startsWith(">")) {
+      flushList();
+      out += `<blockquote>${inline(line.replace(/^\s*>\s?/, ""))}</blockquote>`;
+      continue;
+    }
+    m = line.match(/^\s*[-*+]\s+(.*)$/);
+    if (m) {
+      if (listType !== "ul") { flushList(); out += "<ul>"; listType = "ul"; }
+      out += `<li>${inline(m[1])}</li>`; continue;
+    }
+    m = line.match(/^\s*(\d+)[.)]\s+(.*)$/);
+    if (m) {
+      if (listType !== "ol") { flushList(); out += "<ol>"; listType = "ol"; }
+      out += `<li>${inline(m[2])}</li>`; continue;
+    }
+    flushList();
+    out += `<p>${inline(line)}</p>`;
+  }
+  flushList();
+  return out;
+}
+function renderTable(lines, first) {
+  let idx = lines.indexOf(first);
+  const header = first;
+  const sep = lines[idx + 1] || "";
+  const rows = [];
+  const parse = (l) => l.trim().replace(/^\||\|$/g, "").split("|").map(c => c.trim());
+  rows.push(parse(header));
+  if (/^\s*\|?[\s:|-]+\|?\s*$/.test(sep)) idx++;
+  for (let j = idx + 1; j < lines.length; j++) {
+    const l = lines[j].trim();
+    if (!l.startsWith("|") || !l.endsWith("|")) break;
+    rows.push(parse(l));
+  }
+  let h = "<table><thead><tr>";
+  rows[0].forEach(c => h += "<th>" + inline(c) + "</th>");
+  h += "</tr></thead><tbody>";
+  for (let r = 1; r < rows.length; r++) {
+    h += "<tr>";
+    rows[r].forEach(c => h += "<td>" + inline(c) + "</td>");
+    h += "</tr>";
+  }
+  h += "</tbody></table>";
+  return h;
+}
+function inline(t) {
+  let s = esc(t);
+  s = s.replace(/`([^`]+)`/g, (m, c) => "<code>" + c + "</code>");
+  s = s.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+  return s;
+}
+
+/* ---------- 消息渲染 ---------- */
+function renderMsg(role, content, save = true) {
+  const wrap = document.createElement("div");
+  wrap.className = "msg " + role;
+  const col = document.createElement("div");
+  col.className = "col";
+  const bubble = document.createElement("div");
+  bubble.className = "bubble md";
+  if (role === "assistant") {
+    bubble.innerHTML = renderMarkdown(content);
+  } else {
+    bubble.textContent = content;
+  }
+  col.appendChild(bubble);
+  wrap.appendChild(col);
+  messagesEl.appendChild(wrap);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return { wrap, col, bubble };
+}
+
+function addStatus(text) {
+  const d = document.createElement("div");
+  d.className = "status";
+  d.innerHTML = '<span class="spin">⏳</span> ' + esc(text);
+  messagesEl.appendChild(d);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return d;
+}
+
+/* ---------- 文件上传 ---------- */
+document.getElementById("attach").addEventListener("click", () => fileInput.click());
+fileInput.addEventListener("change", async () => {
+  for (const f of fileInput.files) {
+    if (f.size > 1024 * 1024 * 5) { addStatus("文件过大（超过 5MB），已跳过：" + f.name); continue; }
+    const text = await f.text();
+    loadedFiles.push({ name: f.name, content: text });
+  }
+  fileInput.value = "";
+  if (loadedFiles.length) {
+    const total = loadedFiles.reduce((s, x) => s + x.content.length, 0);
+    filenameEl.textContent = loadedFiles.map(x => x.name).join("、");
+    filecharsEl.textContent = "（共 " + total.toLocaleString() + " 字）";
+    fileinfo.style.display = "block";
+  } else {
+    fileinfo.style.display = "none";
+  }
+});
+
+function buildContextSystem() {
+  const parts = [];
+  if (loadedFiles.length) {
+    for (const f of loadedFiles) {
+      parts.push("【用户上传的文件：<" + f.name + ">】\n" + f.content.slice(0, 20000));
+    }
+  }
+  return parts.join("\n\n");
+}
+
+/* ---------- 联网搜索（普通模式） ---------- */
+async function webSearch(query) {
+  const ctrl = new AbortController();
+  const timeout = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    const r = await fetch(AGENT_API + "/api/search?q=" + encodeURIComponent(query) + "&n=5", { signal: ctrl.signal });
+    if (!r.ok) throw new Error("搜索服务返回 " + r.status);
+    const data = await r.json();
+    const results = data.results || [];
+    if (!results.length) return { text: "", sources: [] };
+    const top = results.slice(0, 3);
+    const fetched = await Promise.all(top.map(async (it) => {
+      try {
+        const f = await fetch(AGENT_API + "/api/fetch?url=" + encodeURIComponent(it.url), { signal: ctrl.signal });
+        if (!f.ok) return null;
+        return await f.json();
+      } catch (e) { return null; }
+    }));
+    const blocks = [];
+    results.forEach((it, i) => {
+      const body = fetched[i] && fetched[i].text ? fetched[i].text : (it.snippet || "");
+      if (body) blocks.push("来源 " + (i + 1) + "：《" + (it.title || "") + "》\n网址：" + it.url + "\n内容：" + body.slice(0, 2500));
+    });
+    return { text: blocks.join("\n\n"), sources: results.slice(0, 5) };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function renderSources(sources) {
+  if (!sources || !sources.length) return;
+  const d = document.createElement("div");
+  d.className = "sources";
+  d.textContent = "参考来源：";
+  sources.forEach((s, i) => {
+    const a = document.createElement("a");
+    a.href = s.url; a.target = "_blank"; a.rel = "noopener";
+    a.textContent = (i + 1) + ". " + (s.title || s.url.slice(0, 40));
+    d.appendChild(a);
+  });
+  messagesEl.appendChild(d);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+}
+
+/* ---------- 工具调用活动显示 ---------- */
+function addActivity(container, label) {
+  const item = document.createElement("div");
+  item.className = "act-item waiting";
+  const badge = document.createElement("span");
+  badge.className = "badge";
+  badge.textContent = "⏳";
+  const cmd = document.createElement("span");
+  cmd.className = "cmd";
+  cmd.textContent = label;
+  const pre = document.createElement("pre");
+  pre.className = "result";
+  item.appendChild(badge);
+  item.appendChild(cmd);
+  item.appendChild(pre);
+  item.addEventListener("click", () => item.classList.toggle("open"));
+  container.appendChild(item);
+  messagesEl.scrollTop = messagesEl.scrollHeight;
+  return { item, badge, pre };
+}
+function setActivity(a, cls, text) {
+  a.item.className = "act-item " + cls;
+  a.badge.textContent = text;
+  if (cls === "done") a.badge.textContent = "✓";
+  if (cls === "error") a.badge.textContent = "✗";
+  if (cls === "waiting") a.badge.textContent = "⏳";
+}
+function activityResult(a, obj) {
+  try {
+    let s = JSON.stringify(obj, null, 2);
+    if (s.length > 6000) s = s.slice(0, 6000) + "\n…（已截断）";
+    a.pre.textContent = s;
+  } catch(e) { a.pre.textContent = String(obj); }
+}
+
+/* ---------- 确认弹窗 ---------- */
+function confirmDialog(command) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById("modal");
+    document.getElementById("modalCmd").textContent = command;
+    modal.classList.add("show");
+    let settled = false;
+    const finish = (v) => {
+      if (settled) return;
+      settled = true;
+      clearInterval(timer);
+      modal.classList.remove("show");
+      document.getElementById("modalAllow").onclick = null;
+      document.getElementById("modalDeny").onclick = null;
+      resolve(v);
+    };
+    document.getElementById("modalAllow").onclick = () => finish("allow");
+    document.getElementById("modalDeny").onclick = () => finish("deny");
+    const countEl = document.getElementById("modalCount");
+    let left = 60;
+    countEl.textContent = "60 秒内不选择将自动拒绝";
+    const timer = setInterval(() => {
+      left--;
+      countEl.textContent = left + " 秒内不选择将自动拒绝";
+      if (left <= 0) finish("timeout");
+    }, 1000);
+  });
+}
+
+/* ---------- 执行工具（带安全确认） ---------- */
+async function execTool(name, args, act) {
+  const resp = await fetch(AGENT_API + "/api/exec", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tool: name, params: args }),
+    signal: abortCtrl.signal
+  });
+  if (!resp.ok) throw new Error("工具服务错误 " + resp.status);
+  let result = await resp.json();
+  if (result.need_confirm) {
+    setActivity(act, "waiting", "⚠");
+    act.item.title = "等待用户确认";
+    const decision = await confirmDialog(result.command);
+    if (decision === "allow") {
+      const r2 = await fetch(AGENT_API + "/api/exec", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tool: "run_command", params: { command: result.command, confirmed: true } }),
+        signal: abortCtrl.signal
+      });
+      result = await r2.json();
+    } else {
+      result = { denied: true, reason: decision === "timeout" ? "确认超时，已自动拒绝" : "用户拒绝执行该命令" };
+    }
+  }
+  return result;
+}
+
+function toolLabel(name, args) {
+  if (name === "list_dir") return "查看目录 " + (args.path || "");
+  if (name === "read_file") return "读取文件 " + (args.path || "");
+  if (name === "run_command") return "执行命令 " + (args.command || "");
+  if (name === "web_search") return "联网搜索 " + (args.query || "");
+  if (name === "fetch_url") return "抓取网页 " + (args.url || "");
+  return name + " " + JSON.stringify(args || {});
+}
+
+/* ---------- AI 助手模式：多步工具循环 ---------- */
+async function runAgentTask(userText, statusEl) {
+  const holder = renderMsg("assistant", "", false);
+  const activityBox = document.createElement("div");
+  activityBox.className = "activity";
+  holder.col.insertBefore(activityBox, holder.bubble);
+
+  let msgs = history.map(m => ({ role: m.role, content: m.content }));
+  msgs.push({ role: "user", content: userText });
+
+  const ctx = buildContextSystem();
+  const fullSys = AGENT_SYSTEM + (ctx ? "\n\n" + ctx : "");
+
+  for (let step = 0; step < 12; step++) {
+    if (abortCtrl && abortCtrl.signal.aborted) throw new Error("aborted");
+    statusEl.innerHTML = '<span class="spin">⏳</span> 正在执行第 ' + (step + 1) + ' 步…';
+    const body = {
+      model: MODEL,
+      messages: [{ role: "system", content: fullSys }, ...msgs],
+      tools: TOOLS,
+      chat_template_kwargs: { enable_thinking: thinkChk.checked }
+    };
+    const resp = await fetch("/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: abortCtrl.signal
+    });
+    if (!resp.ok) {
+      const err = await resp.text();
+      throw new Error("HTTP " + resp.status + (err ? "：" + err.slice(0, 200) : ""));
+    }
+    const data = await resp.json();
+    const choice = data.choices && data.choices[0];
+    if (!choice) throw new Error("模型无返回");
+    const msg = choice.message || {};
+    const fr = choice.finish_reason;
+
+    if (fr === "tool_calls" && msg.tool_calls && msg.tool_calls.length) {
+      for (const tc of msg.tool_calls) {
+        const fn = tc.function;
+        let args = {};
+        try { args = JSON.parse(fn.arguments || "{}"); } catch(e) { args = { raw: fn.arguments }; }
+        const act = addActivity(activityBox, "🔧 " + toolLabel(fn.name, args));
+        statusEl.innerHTML = '<span class="spin">⏳</span> 正在执行：' + esc(toolLabel(fn.name, args));
+        let result;
+        try {
+          result = await execTool(fn.name, args, act);
+          activityResult(act, result);
+          if (result.denied) {
+            setActivity(act, "error", "✗");
+            act.item.querySelector(".cmd").textContent += "（已被用户拒绝）";
+          } else if (result.error) {
+            setActivity(act, "error", "✗");
+          } else {
+            setActivity(act, "done", "✓");
+          }
+        } catch (e) {
+          result = { error: String(e && e.message || e) };
+          activityResult(act, result);
+          setActivity(act, "error", "✗");
+        }
+        msgs.push({ role: "assistant", content: msg.content || "", tool_calls: [tc] });
+        msgs.push({ role: "tool", content: JSON.stringify(result), tool_call_id: tc.id });
+      }
+      continue;
+    }
+
+    // 最终回答
+    const answer = (msg.content || "").trim();
+    if (msg.reasoning_content) {
+      const thinkEl = document.createElement("details");
+      thinkEl.className = "think";
+      const thinkSum = document.createElement("summary");
+      thinkSum.textContent = "思考过程";
+      thinkEl.appendChild(thinkSum);
+      const thinkBody = document.createElement("div");
+      thinkBody.textContent = msg.reasoning_content;
+      thinkEl.appendChild(thinkBody);
+      holder.col.insertBefore(thinkEl, activityBox.nextSibling || holder.bubble);
+    }
+    holder.bubble.innerHTML = renderMarkdown(answer || "（模型没有给出文字回答）");
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return answer;
+  }
+  holder.bubble.innerHTML = renderMarkdown("（已达到最大工具调用步数，任务可能未完全完成。你可以继续补充需求，我会接着处理。）");
+  return "";
+}
+
+/* ---------- 普通模式：流式回答 ---------- */
+async function runNormalTask(text, statusEl) {
+  const sources = [];
+  let sysContent = buildContextSystem();
+  if (webChk.checked) {
+    statusEl.innerHTML = '<span class="spin">⏳</span> 正在联网搜索…';
+    const sw = await webSearch(text);
+    if (sw.text) {
+      const now = new Date().toLocaleString("zh-CN");
+      sysContent += "\n\n【联网搜索结果（搜索时间：" + now + "）】\n" + sw.text + "\n\n请优先依据以上联网资料回答；资料不足或无关时，请明确说明，再结合你自己的知识回答。回答中可引用对应来源编号。";
+      sources.push(...sw.sources);
+    } else {
+      statusEl.innerHTML = "⚠️ 联网搜索未返回结果，将直接回答。";
+    }
+  }
+  statusEl.innerHTML = '<span class="spin">⏳</span> 正在生成…';
+
+  const messages = [];
+  if (sysContent.trim()) messages.push({ role: "system", content: sysContent.trim() });
+  messages.push(...history);
+
+  const body = {
+    model: MODEL,
+    messages: messages,
+    stream: true,
+    chat_template_kwargs: { enable_thinking: thinkChk.checked }
+  };
+
+  const holder = renderMsg("assistant", "", false);
+  const thinkEl = document.createElement("details");
+  thinkEl.className = "think";
+  thinkEl.style.display = "none";
+  const thinkSum = document.createElement("summary");
+  thinkSum.textContent = "思考过程";
+  thinkEl.appendChild(thinkSum);
+  const thinkBody = document.createElement("div");
+  thinkEl.appendChild(thinkBody);
+  holder.col.insertBefore(thinkEl, holder.bubble);
+
+  let answer = "", reasoning = "";
+  const resp = await fetch("/v1/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: abortCtrl.signal
+  });
+  if (!resp.ok) {
+    const err = await resp.text();
+    throw new Error("HTTP " + resp.status + (err ? "：" + err.slice(0, 200) : ""));
+  }
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buf = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let idx;
+    while ((idx = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, idx).trim();
+      buf = buf.slice(idx + 1);
+      if (!line.startsWith("data:")) continue;
+      const payload = line.slice(5).trim();
+      if (payload === "[DONE]") continue;
+      try {
+        const j = JSON.parse(payload);
+        const delta = j.choices && j.choices[0] && j.choices[0].delta;
+        if (!delta) continue;
+        if (delta.reasoning_content) reasoning += delta.reasoning_content;
+        if (delta.content) answer += delta.content;
+      } catch (e) {}
+    }
+    holder.bubble.innerHTML = renderMarkdown(answer);
+    if (reasoning) {
+      thinkEl.style.display = "block";
+      thinkBody.textContent = reasoning;
+    }
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+  holder.bubble.innerHTML = renderMarkdown(answer);
+  if (!answer && reasoning) {
+    holder.bubble.textContent = "（仅输出了思考内容，未生成正式回答。可关闭“思考模式”后重试）";
+  }
+  renderSources(sources);
+  return answer || "";
+}
+
+/* ---------- 发送（含队列，任务不被打断） ---------- */
+async function sendMessage() {
+  const text = inputEl.value.trim();
+  if (!text || sendBtn.disabled) return;
+  inputEl.value = "";
+  autoResize();
+
+  if (busy) {
+    queue.push(text);
+    renderMsg("user", text);
+    renderMsg("system", "当前任务正在执行中，你的这条消息已加入队列，任务完成后我会自动接着处理，不会中断正在进行的任务。");
+    return;
+  }
+
+  renderMsg("user", text);
+  history.push({ role: "user", content: text });
+  await runTask(text);
+
+  while (queue.length) {
+    const next = queue.shift();
+    renderMsg("user", next);
+    history.push({ role: "user", content: next });
+    await runTask(next);
+  }
+}
+
+async function runTask(text) {
+  busy = true;
+  sendBtn.disabled = true;
+  stopBtn.style.display = "inline-block";
+  abortCtrl = new AbortController();
+  const statusEl = addStatus(agentChk.checked ? "AI 助手模式，正在分析任务…" : "正在准备回复…");
+  try {
+    const answer = agentChk.checked ? await runAgentTask(text, statusEl) : await runNormalTask(text, statusEl);
+    history.push({ role: "assistant", content: answer });
+    saveHistory();
+    statusEl.remove();
+  } catch (err) {
+    statusEl.remove();
+    if (err.name === "AbortError") {
+      renderMsg("system", "已停止当前任务。");
+    } else {
+      renderMsg("system", "出错了：" + err.message + "（请确认模型服务 8080 和工具服务 8082 在运行；若刚重启过，请等模型加载完再试）");
+    }
+  } finally {
+    busy = false;
+    sendBtn.disabled = false;
+    stopBtn.style.display = "none";
+    abortCtrl = null;
+    inputEl.focus();
+  }
+}
+
+/* ---------- 服务健康监测 ---------- */
+async function checkHealth() {
+  try {
+    const r = await fetch("/health", { signal: AbortSignal.timeout(4000) });
+    if (r.ok) {
+      statusDot.classList.remove("down");
+      statusDot.title = "模型服务正常";
+      return;
+    }
+    throw new Error();
+  } catch (e) {
+    statusDot.classList.add("down");
+    statusDot.title = "模型服务未连接（稍等，守护任务会自动拉起）";
+  }
+}
+setInterval(checkHealth, 15000);
+checkHealth();
+
+/* ---------- 事件 ---------- */
+function autoResize() {
+  inputEl.style.height = "auto";
+  inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + "px";
+}
+inputEl.addEventListener("input", autoResize);
+sendBtn.addEventListener("click", sendMessage);
+inputEl.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+});
+stopBtn.addEventListener("click", () => { if (abortCtrl) abortCtrl.abort(); });
+webChk.addEventListener("change", saveSettings);
+thinkChk.addEventListener("change", saveSettings);
+agentChk.addEventListener("change", () => {
+  saveSettings();
+  hint.textContent = agentChk.checked
+    ? "AI 助手模式：我可自主调用工具完成任务（查看文件、执行命令、联网搜索）；涉及删除/修改等危险操作会先征求你同意"
+    : "普通对话模式：纯本地运行 · 开启「联网搜索」后结合实时网络资料回答";
+});
+clearBtn.addEventListener("click", () => {
+  history = []; loadedFiles = [];
+  fileinfo.style.display = "none";
+  localStorage.removeItem("llm_history");
+  messagesEl.innerHTML = "";
+  renderMsg("assistant", "对话已清空，开始新话题吧！");
+});
+</script>
+</body>
+</html>

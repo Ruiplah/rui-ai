@@ -1,0 +1,24 @@
+﻿# 模型文件（太大，不进 Git）
+*.gguf
+models/
+
+# 上传的文件
+uploads/
+
+# 临时文件
+*.tmp
+*.log
+__pycache__/
+*.pyc
+*.pyo
+
+# 备份文件
+*.bak
+*.bak_*
+
+# 安装包
+*.exe
+*.msi
+
+# 状态文件
+rui_state/
