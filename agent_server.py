@@ -30,6 +30,15 @@ import queue
 import time
 import sys
 
+# 长期记忆模块
+try:
+    from memory_store import add_memory, search_memories, list_memories, delete_memory, prune_old_memories, get_memory_stats
+    MEMORY_AVAILABLE = True
+    print("[记忆模块] 已加载")
+except Exception as e:
+    MEMORY_AVAILABLE = False
+    print(f"[记忆模块] 加载失败: {e}")
+
 _OCR_ENGINE = None   # RapidOCR 懒加载单例
 
 # ===== 飞书配置（在飞书开放平台创建自建应用后填入） =====
@@ -906,6 +915,44 @@ _browser = BrowserManager()
 
 
 def do_tool(name, params):
+    # ===== 长期记忆工具 =====
+    if name == "save_memory":
+        if not MEMORY_AVAILABLE:
+            return {"error": "记忆模块未加载"}
+        content = params.get("content", "").strip()
+        category = params.get("category", "general")
+        importance = int(params.get("importance", 7))
+        if not content:
+            return {"error": "缺少 content 参数"}
+        mem_id = add_memory(content, category=category, importance=importance, source="tool")
+        return {"ok": True, "id": mem_id, "message": "已保存到长期记忆"}
+
+    if name == "search_memory":
+        if not MEMORY_AVAILABLE:
+            return {"error": "记忆模块未加载"}
+        query = params.get("query", "").strip()
+        limit = int(params.get("limit", 5))
+        if not query:
+            return {"error": "缺少 query 参数"}
+        results = search_memories(query, limit=min(limit, 10))
+        return {"query": query, "results": results, "count": len(results)}
+
+    if name == "list_memory":
+        if not MEMORY_AVAILABLE:
+            return {"error": "记忆模块未加载"}
+        results = list_memories(limit=int(params.get("limit", 20)))
+        stats = get_memory_stats()
+        return {"memories": results, "stats": stats}
+
+    if name == "delete_memory":
+        if not MEMORY_AVAILABLE:
+            return {"error": "记忆模块未加载"}
+        mem_id = int(params.get("id", 0))
+        if not mem_id:
+            return {"error": "缺少 id 参数"}
+        ok = delete_memory(mem_id)
+        return {"ok": ok}
+
     # ---- 只读：目录/文件 ----
     if name == "list_dir":
         path = params.get("path", ".")
@@ -1575,6 +1622,27 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if parsed.path == "/api/models":
                 return self._send(200, list_models())
+            # ===== 长期记忆 API =====
+            if parsed.path == "/api/memory/search":
+                if not MEMORY_AVAILABLE:
+                    return self._send(503, {"error": "记忆模块未加载"})
+                q = (qs.get("q") or [""])[0].strip()
+                limit = int((qs.get("limit") or ["5"])[0])
+                if not q:
+                    return self._send(400, {"error": "缺少参数 q"})
+                results = search_memories(q, limit=min(limit, 20))
+                return self._send(200, {"query": q, "results": results})
+            if parsed.path == "/api/memory/list":
+                if not MEMORY_AVAILABLE:
+                    return self._send(503, {"error": "记忆模块未加载"})
+                category = (qs.get("category") or [None])[0]
+                results = list_memories(category=category)
+                stats = get_memory_stats()
+                return self._send(200, {"memories": results, "stats": stats})
+            if parsed.path == "/api/memory/stats":
+                if not MEMORY_AVAILABLE:
+                    return self._send(503, {"error": "记忆模块未加载"})
+                return self._send(200, get_memory_stats())
             if parsed.path == "/api/rui/state":
                 key = (qs.get("key") or [""])[0].strip()
                 if not key or not _VALID_KEY.match(key):
@@ -1625,6 +1693,35 @@ class Handler(BaseHTTPRequestHandler):
                 with open(path, "wb") as f:
                     f.write(data)
                 return self._send(200, {"ok": True, "path": path, "bytes": len(data)})
+            # ===== 长期记忆 API =====
+            if parsed.path == "/api/memory/add":
+                if not MEMORY_AVAILABLE:
+                    return self._send(503, {"error": "记忆模块未加载"})
+                length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
+                content = str(body.get("content", "")).strip()
+                category = str(body.get("category", "general"))
+                importance = int(body.get("importance", 5))
+                source = str(body.get("source", "manual"))
+                if not content:
+                    return self._send(400, {"error": "缺少 content 参数"})
+                mem_id = add_memory(content, category=category, importance=importance, source=source)
+                return self._send(200, {"ok": True, "id": mem_id, "content": content[:100]})
+            if parsed.path == "/api/memory/delete":
+                if not MEMORY_AVAILABLE:
+                    return self._send(503, {"error": "记忆模块未加载"})
+                length = int(self.headers.get("Content-Length", 0))
+                body = json.loads(self.rfile.read(length).decode("utf-8")) if length else {}
+                mem_id = int(body.get("id", 0))
+                if not mem_id:
+                    return self._send(400, {"error": "缺少 id 参数"})
+                ok = delete_memory(mem_id)
+                return self._send(200, {"ok": ok})
+            if parsed.path == "/api/memory/prune":
+                if not MEMORY_AVAILABLE:
+                    return self._send(503, {"error": "记忆模块未加载"})
+                deleted = prune_old_memories()
+                return self._send(200, {"ok": True, "deleted": deleted})
             if parsed.path != "/api/exec":
                 return self._send(404, {"error": "not found"})
             length = int(self.headers.get("Content-Length", 0))

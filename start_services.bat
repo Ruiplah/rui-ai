@@ -7,7 +7,7 @@ set AGENT_PY=C:\Users\123\AppData\Local\Doubao\User Data\sandbox_runtime\bases\c
 echo 检查 llama-server (8080)...
 netstat -ano | findstr ":8080" | findstr "LISTENING" >nul
 if errorlevel 1 (
-  start "llama-server" "D:\llama\llama-server.exe" -m D:\llama\models\Qwen_Qwen3.5-9B-Q4_K_M.gguf -c 8192 --port 8080 --host 127.0.0.1 --path D:\llama\webui -ngl 99 -t 12 -tb 12
+  start "llama-server" "D:\llama\llama-server.exe" -m D:\llama\models\Qwen_Qwen3.5-9B-Q4_K_M.gguf -c 8192 --port 8080 --host 127.0.0.1 --path D:\llama\webui -ngl 99 -t 12 -tb 12 -fa on -ctk q4_0 -ctv q4_0 -ub 1024
   echo 已启动 llama-server，等待加载模型...
 ) else (
   echo llama-server 已在运行

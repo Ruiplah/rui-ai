@@ -769,11 +769,28 @@ function clearLoadedFiles() { if (store.state.loadedFiles) store.state.loadedFil
 const toolLayer = {
   async exec(name, args, abortSignal) {
     if (!TOOL_NAMES.has(name)) return { ok:false, error:"未知工具: "+name };
-    /* save_memory 本地闭环：直接写入长期记忆（localStorage），无需后端实现 */
+    /* save_memory：调用后端长期记忆 API（SQLite持久化，跨会话可用） */
     if (name === "save_memory") {
-      const _t = (args && args.text ? String(args.text) : "").trim();
-      if (_t) { if (!store.state.memory.includes(_t)) { store.state.memory.push(_t); store.saveMemory(); } return { ok:true, saved:true }; }
-      return { ok:false, error:"记忆内容为空" };
+      const _t = (args && args.text ? String(args.text) : (args && args.content ? String(args.content) : "")).trim();
+      if (!_t) return { ok:false, error:"记忆内容为空" };
+      try {
+        const resp = await fetch("http://127.0.0.1:8082/api/memory/add", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({ content: _t, category: args.category || "general", importance: args.importance || 7 })
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          return { ok: true, saved: true, id: data.id, message: "已保存到长期记忆" };
+        }
+        // 后端失败，降级到 localStorage
+        if (!store.state.memory.includes(_t)) { store.state.memory.push(_t); store.saveMemory(); }
+        return { ok: true, saved: true, note: "已保存到本地（后端记忆库不可用）" };
+      } catch(e) {
+        // 降级到 localStorage
+        if (!store.state.memory.includes(_t)) { store.state.memory.push(_t); store.saveMemory(); }
+        return { ok: true, saved: true, note: "已保存到本地（后端记忆库不可用）" };
+      }
     }
     /* web_search 前端缓存：同一会话内相同关键词直接返回缓存 */
     if (name === "web_search" && args && args.query) {
@@ -935,7 +952,7 @@ const agentEngine = {
     let sys = `你是 Rui AI，运行在用户本地电脑上的智能助手，可调用工具完成任务。
 
 【核心定位】
-你是本地9B模型，知识有限且不包含最新信息。涉及事实性问题、最新资讯、专业知识时，必须先 web_search 搜索，绝对不要凭记忆编造。简单问题（问候/闲聊/常识）直接回答，不调用工具。
+你是本地9B模型，知识有限且不包含最新信息。涉及事实性问题、最新资讯、专业知识时，可以用 web_search 搜索获取资料。简单问题（问候/闲聊/常识）直接回答。
 
 【问题判断】（按分类决定是否搜索）
 - 直接回答（不搜索）：问候闲聊、基础常识（植物养护/生活经验）、有歧义但属常识范畴（如"绿龙和老鼠谁厉害"可能是CS2战队也可能是奇幻生物→直接给两种答案）
@@ -943,13 +960,14 @@ const agentEngine = {
 - 搜索+免责：医学诊断、法律条款、投资建议
 - 搜索2-3次还找不到就基于已有知识给出答案，明确标注"基于已有知识，无法确认最新信息"，不要无限搜索
 
-【搜索策略】
-- 关键词优化：去掉"吗/呢/怎么/什么"等疑问词，加领域限定词（如"CS2 战队"、"盆栽 养护"），用引号精确匹配专有名词
-- 拆解搜索：复杂问题拆成多个关键词分别搜索，先搜实体确认是什么，再搜对比数据
-- 来源优先级：官方网站/百科 > 权威媒体 > 知乎高赞/B站高播放 > 普通新闻 > 不明来源
-- 交叉验证：多个来源一致才确认，来源冲突时明确说明"信息有冲突"
-- 时效性标注：回答时标注"根据搜索结果"、"根据XX来源"，不编造来源
-- 失败处理：第一次搜索结果不理想，调整关键词再搜（换同义词/加限定词/去疑问词），最多3种组合；仍失败则基于已有知识回答并说明"搜索未找到权威信息"
+【搜索关键词提取】（查资料时用 web_search 工具，注意：这只是众多工具之一）
+- 核心：用户问题里的关键信息一个都不能丢
+- 对比问题：两个对比对象都写上（如"RX 9060 XT vs RTX 5060 Ti"）
+- 限定词不能丢："免费""最新""小显卡""2026"这些必须保留
+- 去掉废话："我想了解一下""能不能帮我"这类前缀去掉
+- 保留专有名词："我的世界""的确良"一个字都不能改
+- 来源优先级：官方网站/百科 > 权威媒体 > 知乎/B站高赞 > 普通新闻
+- 失败处理：搜不到就换关键词（加限定词/去疑问词），最多3次
 
 【回答要求】
 - 最终回答是给用户看的成品，必须干净、完整、可直接阅读。不要包含任何思考过程、分析推理、过程性语句或收尾语句
@@ -1005,6 +1023,12 @@ const agentEngine = {
 - 执行命令示例：python -c "完整脚本" 或 先 write_file 保存脚本再 python script.py 执行
 - 简单任务（读取单个文件、搜索信息）可以直接用对应工具，但复杂任务必须代码优先
 - 生成脚本前先在思考中说明脚本要做什么，然后立即调用 run_command 执行，不要反复讨论工具用法
+
+【长期记忆】
+你有一个长期记忆库，会自动记住用户的偏好和关键信息。
+- 对话中如果用户明确说"记住这个"、"别忘了"、"以后都这样"，请调用 save_memory 工具保存到记忆库
+- 用户的重要偏好（饮食/工作/生活习惯）、关键事实（姓名/职业/家庭情况）、重要任务历史都会自动沉淀到记忆库
+- 回答时如果相关记忆已经在上下文中提供，可以直接参考，不需要再搜索
 
 【可用工具列表】
 - web_search(q)：联网搜索，返回标题/链接/摘要
@@ -1086,7 +1110,21 @@ const agentEngine = {
     if (!conv) return "";
     store.startTask(convId);
     const abortSignal = store.state.task.abortCtrl.signal;
-    const sysPrompt = this.buildSystemPrompt();
+
+    // 【长期记忆】搜索与当前问题相关的历史记忆
+    let memoryContext = "";
+    try {
+      const memResp = await fetch(`http://127.0.0.1:8082/api/memory/search?q=${encodeURIComponent(userText)}&limit=3`);
+      if (memResp.ok) {
+        const memData = await memResp.json();
+        if (memData.results && memData.results.length > 0) {
+          memoryContext = "\n\n【相关历史记忆】（从长期记忆库中检索到的与当前问题相关的信息，请参考使用）\n" +
+            memData.results.map((m, i) => `${i+1}. [${m.category}] ${m.content}`).join("\n");
+        }
+      }
+    } catch(e) { console.warn("记忆检索失败:", e); }
+
+    const sysPrompt = this.buildSystemPrompt() + memoryContext;
     const msgs = [{role:"system", content:sysPrompt}, ...conv.messages.map(m => ({role:m.role, content:m.content})), {role:"user", content:userText}];
     store.addMessage(convId, {role:"user", content:userText, _mode:"agent"});
     let liveMsg = { role:"assistant", content:"", _stepData:[], _think:"", _mode:"agent" };
@@ -1299,7 +1337,7 @@ const agentEngine = {
           const rawContent = (st.content || "").trim();
           const usedAnyTool = (liveMsg._stepData || []).length > 0;
           const realContent = rawContent
-            .replace(/\*\*(?:搜索完成|统计结果|执行结果|文件已读取|文档已创建)[\s\S]*$/g, "")
+            .replace(/\*\*(?:搜索完成|统计结果|执行结果|文件已读取|文档已创建)[^\n]*/g, "")
             .replace(/【[^】]*】[\s\S]*$/g, "").trim();
           const looksLikeProcess = /^\s*【/.test(rawContent)
             || /需要补充|继续搜索|待获取|尚未获取|让我(?:再|继续|先|进一步)|还需要(?:搜索|查询|调用)|下一步(?:该|要|会)/.test(rawContent)
