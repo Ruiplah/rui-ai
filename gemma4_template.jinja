@@ -1,4 +1,0 @@
-﻿{{ bos_token }}{% for message in messages %}<|turn>{{ message.role }}
-{{ message.content | trim }}<turn|>
-{% endfor %}{% if add_generation_prompt %}<|turn>model
-{% endif %}
