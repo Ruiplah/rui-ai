@@ -354,8 +354,8 @@ header .sub { font-size: 12px; color: var(--muted); }
 .bubble h2 { font-size: 1.3em; }
 .bubble h3 { font-size: 1.15em; }
 .bubble h4 { font-size: 1.05em; }
-.bubble table { border-collapse: collapse; margin: 16px 0; font-size: 13.5px; width: 100%; table-layout: auto; border-radius: 10px; overflow: hidden; border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
-.bubble th, .bubble td { border: none; border-bottom: 1px solid var(--border); padding: 12px 16px; text-align: left; white-space: normal; word-break: break-word; line-height: 1.6; vertical-align: top; }
+.bubble .table-wrap { overflow-x: auto; margin: 16px 0; -webkit-overflow-scrolling: touch; } .bubble table { border-collapse: collapse; font-size: 13.5px; min-width: 100%; table-layout: auto; border-radius: 10px; border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
+.bubble th, .bubble td { border: none; border-bottom: 1px solid var(--border); padding: 10px 14px; text-align: left; white-space: nowrap; line-height: 1.6; vertical-align: top; }
 .bubble th { background: var(--bg-secondary); font-weight: 600; color: var(--text); border-bottom: 1px solid var(--border); }
 .bubble tr:last-child td { border-bottom: none; }
 .bubble tr:nth-child(even) td { background: var(--bg-secondary); }
@@ -450,6 +450,7 @@ header .sub { font-size: 12px; color: var(--muted); }
         <button class="mode-btn" id="modeAgent" data-mode="agent" title="Agent 模式：思考+联网+工具调用配合完成任务">Agent</button>
       </div>
       <span class="stat" id="statTotal" title="本次会话累计 token / 实时速度">⚡ 0<span id="statSpeed" style="font-size:11px;opacity:.65;margin-left:5px"></span></span>
+      <span class="stat" id="statTotalAll" title="总共用了多少 token（累计）">📊 0</span>
       <button class="clear-btn" id="themeBtn" title="切换深色/浅色模式">🌙</button><button class="clear-btn" id="clearBtn" title="清空当前会话">清空</button>
     </header>
 
@@ -492,7 +493,7 @@ header .sub { font-size: 12px; color: var(--muted); }
     <h3>⚙️ 设置</h3>
     <div class="set-row"><div class="lab"><div class="t">自动调用记忆</div><div class="d">每次对话时把长期记忆注入上下文</div></div><div class="mini-sw" id="swAutoMemory"></div></div>
     <div class="set-row"><div class="lab"><div class="t">运行模式</div><div class="d">普通：纯对话；Agent：思考+联网+工具调用配合完成任务。在顶部切换模式。</div></div><div style="font-size:13px;color:var(--accent);font-weight:600" id="modeLabel">Agent</div></div>
-    <div class="set-row"><div class="lab"><div class="t">最大工具步数</div><div class="d">AI 助手单次任务最多调用工具的轮数</div></div><input class="num-input" id="maxSteps" type="number" min="3" max="50" value="30"></div>
+    <div class="set-row"><div class="lab"><div class="t">最大工具步数</div><div class="d">AI 助手单次任务最多调用工具的轮数</div></div><input class="num-input" id="maxSteps" type="number" min="3" max="30" value="15"></div>
     <div class="set-row"><div class="lab"><div class="t">模型</div><div class="d">切换本地大模型（需重启模型服务，约25秒，期间无法对话）</div></div><select class="num-input" id="modelSelect" style="width:200px"><option>加载中…</option></select></div>
     <div class="set-row"><div class="lab"><div class="t">服务端口</div><div class="d">模型服务 / 工具服务</div></div><div style="font-size:13px;color:var(--muted)">8080 / 8082</div></div>
     <div class="modal-btns">
@@ -525,7 +526,7 @@ let currentModelThinking = true;  // 当前模型是否支持思考模式（Gemm
 /* 动态获取主机地址：手机访问局域网IP时自动使用对应IP，本机访问时用127.0.0.1 */
 const AGENT_API = location.hostname && location.hostname !== "localhost" && location.hostname !== "127.0.0.1" ? "http://" + location.hostname + ":8082" : "http://127.0.0.1:8082";
 const ACCESS_TOKEN = "";  /* 与后端 RUI_ACCESS_TOKEN 环境变量一致；留空则后端不强制校验（向后兼容） */
-const MAX_STEPS_DEFAULT = 30;
+const MAX_STEPS_DEFAULT = 15;
 
 /* ================= 工具定义 ================= */
 const TOOLS = [{type:"function",function:{name:"get_time",description:"获取当前系统日期和时间",parameters:{type:"object",properties:{},required:[]}}},
@@ -535,7 +536,7 @@ const TOOLS = [{type:"function",function:{name:"get_time",description:"获取当
   {type:"function",function:{name:"create_doc",description:"创建Word文档(.docx)（搜索资料+读取文件后，把整理好的内容生成正式文档）",parameters:{type:"object",properties:{path:{type:"string",description:"保存路径，如 D:\\报告.docx"},content:{type:"string",description:"文档正文内容"}},required:["path","content"]}}},
   {type:"function",function:{name:"create_excel",description:"创建Excel表格(.xlsx)。用表头数组+行数据数组生成表格文件，用户要求建Excel/表格/统计表/台账时用此工具",parameters:{type:"object",properties:{path:{type:"string",description:"保存路径，如 C:\\Users\\123\\Desktop\\统计.xlsx"},headers:{type:"array",description:"表头列表，如 [姓名,数量]"},rows:{type:"array",description:"数据行列表，每行一个数组，如 [[张三,5],[李四,8]]"},sheet_name:{type:"string",description:"工作表名称，默认Sheet1"}},required:["path","headers","rows"]}}},
   {type:"function",function:{name:"read_doc",description:"读取Word/Excel/PDF等文档内容（读取后可配合stat_data统计、create_doc生成报告）",parameters:{type:"object",properties:{path:{type:"string",description:"文档文件路径"}},required:["path"]}}},
-  {type:"function",function:{name:"stat_data",description:"统计分析Excel/CSV数据（配合read_doc使用：先用read_doc读取文件，再用stat_data按列分组统计）",parameters:{type:"object",properties:{path:{type:"string",description:"Excel/CSV文件路径"},group_by:{type:"string",description:"按哪一列分组"},agg_col:{type:"string",description:"统计哪一列"},agg:{type:"string",description:"统计方式：sum求和/count计数/avg平均"}},required:["path"]}}},
+  {type:"function",function:{name:"stat_data",description:"统计分析Excel/CSV数据。两种模式：1）数值统计：按某列分组做sum/count/avg；2）文本分类：统计某列文本里各关键词出现的次数（比如统计讨论理想/问界/小鹏的发言数量）",parameters:{type:"object",properties:{path:{type:"string",description:"Excel/CSV文件路径"},group_by:{type:"string",description:"数值统计：按哪一列分组"},agg_col:{type:"string",description:"数值统计：统计哪一列"},agg:{type:"string",description:"数值统计：sum/count/avg"},text_column:{type:"string",description:"文本分类：指定哪一列是文本列"},categories:{type:"string",description:"文本分类：关键词列表（JSON数组，如[\"理想\",\"问界\",\"小鹏\"]）"}},required:["path"]}}},
   {type:"function",function:{name:"run_command",description:"执行系统命令。【重要】可执行Python脚本处理复杂数据（Excel统计/数据分析），示例：python -c \"import openpyxl; ...\"。危险操作会先征求同意",parameters:{type:"object",properties:{cmd:{type:"string"},timeout:{type:"number"}},required:["cmd"]}}},
   {type:"function",function:{name:"calculator",description:"数学计算",parameters:{type:"object",properties:{expr:{type:"string"}},required:["expr"]}}},
   {type:"function",function:{name:"file_copy",description:"复制文件",parameters:{type:"object",properties:{src:{type:"string"},dst:{type:"string"}},required:["src","dst"]}}},
@@ -558,7 +559,7 @@ const TOOLS = [{type:"function",function:{name:"get_time",description:"获取当
   {type:"function",function:{name:"feishu_update_record",description:"更新飞书多维表格记录（需用户确认）",parameters:{type:"object",properties:{app_token:{type:"string"},table_id:{type:"string"},record_id:{type:"string"},fields:{type:"object"}},required:["app_token","table_id","record_id","fields"]}}},
 ];
 const TOOL_NAMES = new Set(TOOLS.map(t => t.function.name));
-const TOOL_RISK = { run_command:3, file_delete:3, file_move:2, file_copy:2, write_file:2, create_doc:2, create_excel:2, clipboard_set:2, feishu_create_record:2, feishu_update_record:2 };
+const TOOL_RISK = { run_command:2, file_delete:3, file_move:2, file_copy:2, write_file:2, create_doc:2, create_excel:2, clipboard_set:2, feishu_create_record:2, feishu_update_record:2 };
 /* 危险操作确认弹窗的人性化描述：标题 + 根据参数生成的描述 */
 const TOOL_CONFIRM_LABELS = {
   run_command:       { title: "执行系统命令",   desc: a => "命令：" + ((a.cmd||"").substring(0,120) || "(空)") },
@@ -598,7 +599,7 @@ const store = {
     busy: false,
     settings: { mode:'agent', autoMemory:true, maxSteps:MAX_STEPS_DEFAULT, model:MODEL },
     memory: [],
-    tokens: { session:0 },
+    tokens: { session:0, totalPrompt: 0, totalComp: 0 },
     loadedFiles: [],
     pendingImg: null,
     genSpeed: 0, genTokens: 0, genStartTime: 0,  /* 实时生成速度 */
@@ -614,7 +615,7 @@ const store = {
     this.state.currentConvId = c.id;
     if (typeof clearSearchCache === "function") clearSearchCache();
     if (typeof clearLoadedFiles === "function") clearLoadedFiles();
-    this.saveConvs(); this.notify(); return c;
+    this.state.tokens.session = 0;  // 新建会话清零当前 token 数
   },
   /**
    * 切换当前会话
@@ -751,8 +752,8 @@ const store = {
     if (!this.state.convs.length) this.addConv();
     else if (!this.state.currentConvId) this.state.currentConvId = this.state.convs[0].id;
   },
-  saveSettings() { try { localStorage.setItem("rui_settings", JSON.stringify(this.state.settings)); } catch(e) {} },
-  loadSettings() { try { const s = localStorage.getItem("rui_settings"); if (s) { const parsed = JSON.parse(s); Object.assign(this.state.settings, parsed); if (parsed.agent !== undefined && parsed.mode === undefined) { this.state.settings.mode = parsed.agent ? "agent" : "normal"; } } } catch(e) {} },
+  saveSettings() { try { localStorage.setItem("rui_settings", JSON.stringify(this.state.settings)); localStorage.setItem("rui_tokens", JSON.stringify({ totalPrompt: this.state.tokens.totalPrompt, totalComp: this.state.tokens.totalComp })); } catch(e) {} },
+  loadSettings() { try { const s = localStorage.getItem("rui_settings"); if (s) { const parsed = JSON.parse(s); Object.assign(this.state.settings, parsed); if (parsed.agent !== undefined && parsed.mode === undefined) { this.state.settings.mode = parsed.agent ? "agent" : "normal"; } } const t = localStorage.getItem("rui_tokens"); if (t) { const tp = JSON.parse(t); this.state.tokens.totalPrompt = tp.totalPrompt || 0; this.state.tokens.totalComp = tp.totalComp || 0; } } catch(e) {} },
   saveMemory() { try { localStorage.setItem("rui_memory", JSON.stringify(this.state.memory)); } catch(e) {} },
   loadMemory() { try { const m = localStorage.getItem("rui_memory"); if (m) this.state.memory = JSON.parse(m); } catch(e) {} },
 };
@@ -810,8 +811,11 @@ const toolLayer = {
       const result = await r.json();
       /* 后端需要确认时：自动弹窗确认后带 confirmed 重发一次 */
       if (result && result.need_confirm) {
-        const ok2 = await ui.confirmAction(result.tool || name, result.params || args || {});
-        if (!ok2) return { ok:false, error:"用户拒绝执行" };
+        const risk = this.riskOf(result.tool || name);
+        if (risk >= 3) {
+          const ok2 = await ui.confirmAction(result.tool || name, result.params || args || {});
+          if (!ok2) return { ok:false, error:"用户拒绝执行" };
+        }
         return await this.exec(name, Object.assign({}, args, result.params || {}, {confirmed:true}), abortSignal);
       }
       /* web_search 结果存入缓存 */
@@ -968,6 +972,7 @@ const agentEngine = {
 - 保留专有名词："我的世界""的确良"一个字都不能改
 - 来源优先级：官方网站/百科 > 权威媒体 > 知乎/B站高赞 > 普通新闻
 - 失败处理：搜不到就换关键词（加限定词/去疑问词），最多3次
+- 【联想扩展关键词】用户问题太泛时（如"今年手机排行""65寸电视推荐"），先在思考里联想出具体的品牌/型号，再用具体关键词搜索。比如用户问"65寸电视"，就联想出三星/TCL/海信/小米，分别搜"三星 2026 年 65 寸电视""TCL 2026 年 65 寸电视"等，合并结果
 
 【回答要求】
 - 最终回答是给用户看的成品，必须干净、完整、可直接阅读。不要包含任何思考过程、分析推理、过程性语句或收尾语句
@@ -981,6 +986,10 @@ const agentEngine = {
 - 【严格按用户指定步骤执行】如果用户明确列出了第1步、第2步...第N步，必须严格按顺序执行，不要自己增加或跳过步骤。每完成一步必须把该步的结果（数据、统计、表格、分析）写入最终回答区域，不能只放在思考过程里
 - 【任务完成判断】只有当用户要求的所有步骤都完成且结果都写入最终回答后，才能结束任务。如果还有未完成的步骤，必须继续调用工具执行，不能提前输出最终回答
 - 【工具调用失败处理】工具调用失败后，重试1次；如果仍然失败，换一种方式实现（如用不同工具或参数），不要因为一个工具失败就放弃整个任务
+- 【Excel文本分析】分析Excel文本内容时（比如统计讨论某车型的发言数量），用stat_data的文本分类模式：传text_column指定文本列，传categories传关键词数组（如["理想","问界","小鹏"]）
+- 【不要轻易放弃】遇到问题时不要说"无法完成"或"请用户提供更多信息"，而是换个方式继续尝试：工具失败就换工具，参数不对就调参数，不要把问题推回给用户
+- 【完成任务】用户要求的任务必须完成，工具调用成功后要继续下一步，直到完成全部任务。但不要过度调用工具——已经拿到需要的信息就直接回答，不要重复调用相同的工具
+- 【参考格式生成报告】如果用户要求"参考某文档的格式，用另一份数据生成报告"，按以下步骤：1）先读参考文档，拿到章节结构和格式；2）再读数据文件，拿到数据；3）分析数据，按参考文档的章节结构组织内容；4）生成新报告
 - 【思考与回答的分工】思考过程只用于规划、推理、判断是否需要工具。所有的分析结果、统计数据、表格、结论必须放在最终回答区域，用户只能看到最终回答，看不到思考过程
 
 【思考与回答的边界】（最重要）
@@ -998,6 +1007,7 @@ const agentEngine = {
 - 工具失败时自动重试（最多3次，每次用不同参数/关键词），仍失败则换替代工具，如实告知
 - 搜索失败时先调整关键词重试（去疑问词/换同义词/加限定词），不要直接放弃
 - 危险操作（删除文件/修改系统）先确认，用户确认后直接执行
+- Python 环境已安装（Python 3.14 + pandas + openpyxl），可以直接用 run_command 执行 Python 脚本做数据分析。run_command 返回"需要确认"不是环境问题，而是需要用户确认，确认后即可执行
 - 飞书文档链接用 feishu_read_doc，多维表格用 feishu_list_tables/feishu_read_records
 
 【代码优先原则】（最重要）
@@ -1146,10 +1156,11 @@ const agentEngine = {
     const toolResultHashes = new Set();
     let noProgressCount = 0;
     let thinkOnlyCount = 0;
+    let thinkOnlyTotalCount = 0;  /* 思考-only 总次数（防止无限循环） */
     let searchCount = 0;  // 搜索次数计数器
     let searchLimitReached = false;  // 是否已达到搜索上限
     const REPEAT_THRESHOLD = 2;
-    const NO_PROGRESS_THRESHOLD = 3;
+    const NO_PROGRESS_THRESHOLD = 5;
     const THINK_ONLY_THRESHOLD = 3;
     const MAX_SEARCH_COUNT = 6;  // 同一个任务最多搜索6次
 
@@ -1227,9 +1238,9 @@ const agentEngine = {
         /* 上下文压缩：长任务执行到一定步数后，压缩旧对话历史，明确列出已完成步骤，避免模型重复执行 */
         if (stepCount > 5) {
           const totalChars = msgs.reduce((sum, m) => sum + (m.content ? m.content.length : 0), 0);
-          if (totalChars > 15000) {
+          if (totalChars > 25000) {
             const firstUserIdx = msgs.findIndex(m => m.role === "user");
-            const keepEnd = 5;
+            const keepEnd = 10;
             if (msgs.length > firstUserIdx + keepEnd + 3) {
               /* 从中间消息中提取已完成步骤和关键结果 */
               const completedSteps = [];
@@ -1293,7 +1304,7 @@ const agentEngine = {
             if (elapsed > 0.5) { store.state.genSpeed = store.state.genTokens / elapsed; ui.updateStatusOnly(); }
           },
         });
-        if (st.usage) { totalPrompt += st.usage.prompt_tokens || 0; totalComp += st.usage.completion_tokens || 0; }
+        if (st.usage) { totalPrompt += st.usage.prompt_tokens || 0; totalComp += st.usage.completion_tokens || 0; store.state.tokens.totalPrompt += st.usage.prompt_tokens || 0; store.state.tokens.totalComp += st.usage.completion_tokens || 0; store.saveSettings(); }
         const finish = st.finish;
         const toolCalls = st.toolCalls;
 
@@ -1309,11 +1320,12 @@ const agentEngine = {
           }
         }
 
-        /* 思考内容重复检测（语义相似度 > 0.85 就算重复） */
-        const thinkSnippet = (liveMsg._think || "").substring(0, 200).replace(/\s+/g, " ").trim();
-        if (thinkSnippet && lastThinkSnippet) {
-          const sim = stringSimilarity(thinkSnippet, lastThinkSnippet);
-          if (sim > 0.85) {
+        /* 思考内容重复检测（直接对比完整思考过程，不只是前200字符） */
+        const thinkText = (liveMsg._think || "").trim();
+        if (thinkText.length > 100 && lastThinkSnippet) {
+          /* 取思考过程的 hash（简单的字符频率 + 长度），不只是前200字符 */
+          const sim = stringSimilarity(thinkText, lastThinkSnippet);
+          if (sim > 0.7 || thinkText === lastThinkSnippet) {
             repeatThinkCount++;
             if (repeatThinkCount >= REPEAT_THRESHOLD) {
               await reflectAndAnswer(liveMsg, msgs, "思考过程重复", store, ui, MODEL, chatStream, abortSignal);
@@ -1328,7 +1340,7 @@ const agentEngine = {
         } else {
           repeatThinkCount = 0;
         }
-        lastThinkSnippet = thinkSnippet;
+        lastThinkSnippet = thinkText;
 
         /* 纯文本回答（无工具调用）分支 */
         if (finish !== "tool_calls") {
@@ -1361,15 +1373,21 @@ const agentEngine = {
               return liveMsg.content;
             }
             /* 回答内容不足，提示模型继续执行，不停止 */
-            thinkOnlyCount = 0;
+            thinkOnlyTotalCount++;  /* 累计总次数 */
+            if (thinkOnlyTotalCount >= 6) {
+              /* 总次数到 6，强制结束，避免无限循环 */
+              liveMsg.content = liveMsg.content || "（已连续多步无法推进，基于已有信息给出回答）";
+              store.updateTask({ phase:"完成", step:stepCount });
+              store.notify();
+              return liveMsg.content;
+            }
+            thinkOnlyCount = 0;  /* 重置本批次计数 */
             msgs.push({role:"assistant", content:st.content || ""});
             msgs.push({role:"user", content:"【重要提醒】你刚才的思考没有转化为最终回答或工具调用。请：1）如果还有未完成的步骤，立即调用相应工具继续执行；2）如果已有分析结果，立即把结果（数据、统计、表格、结论）写入最终回答区域；3）不要只在思考中分析而不输出结果。继续执行任务。"});
             store.updateTask({ phase:"继续执行中", step:stepCount });
             ui.updateStatusOnly();
             continue;
           }
-        } else {
-          thinkOnlyCount = 0;
         }
 
         /* 如果是工具调用 */
@@ -1426,7 +1444,7 @@ const agentEngine = {
             /* 危险操作需确认 */
             const risk = toolLayer.riskOf(fn.name);
             let result;
-            if (risk >= 2) {
+            if (risk >= 3) {
               const confirmed = await ui.confirmAction(fn.name, args);
               if (!confirmed) result = { ok:false, error:"用户拒绝执行" };
               else result = await toolLayer.exec(fn.name, Object.assign({}, args, {confirmed:true}), abortSignal);
@@ -1462,7 +1480,7 @@ const agentEngine = {
             }
 
             /* 无进展检测：工具结果重复（无新信息） */
-            const resultStr = JSON.stringify(result).substring(0, 500);
+            const resultStr = fn.name + JSON.stringify(args) + JSON.stringify(result).substring(0, 500);
             let resultHash = 0;
             for (let ci = 0; ci < resultStr.length; ci++) { resultHash = ((resultHash << 5) - resultHash + resultStr.charCodeAt(ci)) | 0; }
             if (toolResultHashes.has(resultHash)) {
@@ -1522,15 +1540,24 @@ const agentEngine = {
                       }
                     }
                   }
-                  let answerParts = ["基于搜索结果的回答：", ""];
-                  if (extractedInfo.length > 0) {
-                    answerParts.push("从搜索中获取到的关键信息：");
-                    for (let i = 0; i < Math.min(5, extractedInfo.length); i++) {
-                      answerParts.push("- " + extractedInfo[i]);
+                  let answerParts = ["任务执行到第 " + stepCount + " 步，已完成以下操作：", ""];
+                  if (liveMsg._stepData && liveMsg._stepData.length > 0) {
+                    for (let i = 0; i < liveMsg._stepData.length; i++) {
+                      const step = liveMsg._stepData[i];
+                      let stepDesc = "- 第" + (i+1) + "步：" + step.tool;
+                      if (step.result && step.result.ok !== false) {
+                        stepDesc += "（成功）";
+                      } else if (step.result && step.result.error) {
+                        stepDesc += "（失败：" + String(step.result.error).substring(0, 50) + "）";
+                      }
+                      answerParts.push(stepDesc);
                     }
-                    answerParts.push("");
                   }
-                  answerParts.push("搜索后部分关键数据未能完整获取。如果你需要更详细的信息，可以补充更具体的问题描述、时间范围或数据来源。");
+                  answerParts.push("");
+                  answerParts.push("任务未能完全完成，可能是因为数据量太大或工具调用受限。你可以：");
+                  answerParts.push("1. 补充更具体的要求（比如只要某个车型、某个时间段）");
+                  answerParts.push("2. 把数据分成更小的部分再处理");
+                  answerParts.push("3. 换个问法试试");
                   answerFromThink = answerParts.join("\n");
                 }
                 liveMsg.content = answerFromThink;
@@ -1543,7 +1570,15 @@ const agentEngine = {
             }
             toolResultHashes.add(resultHash);
 
-            msgs.push({role:"tool", content:JSON.stringify(result).slice(0, 8000), tool_call_id:tc.id});
+            // 人性化摘要 + 详细结果（5000 字符）
+            let summary = "工具执行成功";
+            if (fn.name === "read_doc" || fn.name === "read_file") summary = "文件读取成功";
+            else if (fn.name === "stat_data") summary = "统计完成";
+            else if (fn.name === "web_search") summary = "搜索完成";
+            else if (fn.name === "run_command") summary = "命令执行完成";
+            else if (fn.name === "create_doc") summary = "文档创建成功";
+            const toolResultText = "【" + summary + "】\n\n详细结果：\n" + JSON.stringify(result).slice(0, 5000);
+            msgs.push({role:"tool", content: toolResultText, tool_call_id:tc.id});
             liveMsg._stepData.push({ step:stepCount, tool:fn.name, args, result });
             store.updateTask({ phase:"工具完成: "+fn.name });
             store.notify();  // 工具调用完成后全量渲染，显示活动框
@@ -1583,7 +1618,7 @@ const agentEngine = {
         }
 
         /* 最终回答 */
-        let answer = (liveMsg.content && liveMsg.content !== st.content ? liveMsg.content : (st.content || "")).trim();
+        let answer = (st.content || "").trim();
         /* 如果 content 为空但思考过程里有"总结回答"阶段，从思考过程提取 */
         if (!answer && liveMsg._think) {
           const thinkText = liveMsg._think;
@@ -1787,9 +1822,9 @@ const agentEngine = {
       if (st.usage) sessTok = (st.usage.prompt_tokens||0) + (st.usage.completion_tokens||0);
       else sessTok = Math.ceil((msgs.map(m=>m.content||"").join(" ").length + (st.content||"").length) * 0.6);
       store.state.tokens.session += sessTok;
-      if (!liveMsg.content.trim()) {
-        liveMsg.content = "（模型未返回有效内容，可能是请求超时或服务异常。请重试，或检查模型服务状态。）";
-      }
+      store.state.tokens.totalPrompt += st.usage.prompt_tokens || 0;
+      store.state.tokens.totalComp += st.usage.completion_tokens || 0;
+      store.saveSettings();
       ui.renderMessages();
       return st.content || "";
     } catch(e) {
@@ -1843,6 +1878,7 @@ const ui = {
       modeNormal: document.getElementById("modeNormal"),
       modeAgent: document.getElementById("modeAgent"),
       statTotal: document.getElementById("statTotal"),
+      statTotalAll: document.getElementById("statTotalAll"),
       modelLabel: document.getElementById("modelLabel"),
       statusDot: document.getElementById("statusDot"),
       clearBtn: document.getElementById("clearBtn"),
@@ -2009,9 +2045,13 @@ const ui = {
       }).join("\n\n");
       finalText = fileInfo + "\n\n" + text;
     }
+    /* 发送后自动清空附件区：文件已随本次消息发送，后续对话不再重复带同一个文件 */
+    store.state.loadedFiles = [];
+    this.els.fileinfo.classList.remove("show");
+    this.els.filename.textContent = "";
+    this.els.filechars.textContent = "";
     if (store.state.settings.mode === 'agent') await agentEngine.run(finalText, convId);
     else await agentEngine.runNormal(finalText, convId);
-    /* 不在任务完成后清空loadedFiles：保持会话期间文件可用，中断后继续不丢失；仅在新建会话时清空 */
   },
 
   /* 任务执行中发送新指令（注入当前任务，触发重规划） */
@@ -2357,7 +2397,7 @@ const ui = {
    */
   renderMessage(m) {
     if (m.role === "user") {
-      return '<div class="msg user"><div class="avatar">你</div><div class="col"><div class="bubble">'+this.escape(m.content)+'</div><div class="msg-actions"><button class="ma-btn ma-copy" title="复制"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><button class="ma-btn ma-edit" title="编辑"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></div></div></div>';
+      return '<div class="msg user"><div class="avatar">你</div><div class="col"><div class="bubble">'+this.escape(m.content).replace(/\n/g, '<br>')+'</div><div class="msg-actions"><button class="ma-btn ma-copy" title="复制"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg></button><button class="ma-btn ma-edit" title="编辑"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button></div></div></div>';
     }
     if (m.role === "system") {
       return '<div class="msg system"><div class="col"><div class="bubble">'+this.escape(m.content)+'</div></div></div>';
@@ -2372,7 +2412,7 @@ const ui = {
       
       // 所有工具调用放在一个折叠面板里（参考豆包/ChatGPT设计）
       // 折叠面板显示：工具调用数量、成功/失败状态、展开后显示详细信息
-      stepsHtml = '<details class="agent-steps-wrapper" open>';
+      stepsHtml = '<details class="agent-steps-wrapper">';
       stepsHtml += '<summary class="agent-steps-header">';
       stepsHtml += '<span class="agent-steps-icon">🔧</span>';
       stepsHtml += '<span class="agent-steps-title">工具调用 (' + m._stepData.length + ' 步)</span>';
@@ -2587,6 +2627,11 @@ const ui = {
     }
     this.els.stop.classList.toggle("show", store.state.busy);
     this.els.send.classList.toggle("hide", store.state.busy);
+    /* 累计 token 数 */
+    const tp = store.state.tokens.totalPrompt || 0;
+    const tc = store.state.tokens.totalComp || 0;
+    const total = tp + tc;
+    if (this.els.statTotalAll) { this.els.statTotalAll.textContent = "📊 " + (total >= 1000 ? (total/1000).toFixed(1) + "k" : total); }
   },
 
   /* 编辑用户消息 */
@@ -2771,7 +2816,7 @@ const ui = {
           paraLines.push(l);
           j++;
         }
-        if (paraLines.length) blocks.push('<p>' + this.renderInline(esc(paraLines.join(' '))) + '</p>');
+        if (paraLines.length) blocks.push('<p>' + this.renderInline(esc(paraLines.join('<br>'))) + '</p>');
         i = j - 1;
       }
 
@@ -2810,7 +2855,7 @@ const ui = {
     if (rows.length < 2) return rows.map(r => r.join(' ')).join('<br>');
     const header = rows[0];
     const body = rows.slice(2);
-    let html = '<table><thead><tr>';
+    let html = '<div class="table-wrap"><table><thead><tr>';
     for (const h of header) html += '<th>' + this.renderInline(h) + '</th>';
     html += '</tr></thead><tbody>';
     for (const row of body) {
@@ -2818,7 +2863,7 @@ const ui = {
       for (const cell of row) html += '<td>' + this.renderInline(cell) + '</td>';
       html += '</tr>';
     }
-    html += '</tbody></table>';
+    html += '</tbody></table></div>';
     return html;
   },
 };
